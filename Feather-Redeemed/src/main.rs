@@ -1,35 +1,36 @@
 use clap::{Parser};
 use dns_lookup::lookup_addr;
-use std::{thread, time::Duration, time::Instant, fs::File, fs};
-use std::net::{TcpStream, SocketAddr, IpAddr, Ipv4Addr};
+use std::{time::Duration, fs::File, fs};
+use std::net::IpAddr;
 use std::collections::HashSet;
 use std::path::Path;
 use std::io::{self, BufRead, BufWriter, Write};
+use std::env::current_dir;
 use regex::Regex;
 use tokio::task::JoinSet;
 use std::sync::{Arc, Mutex};
-
+use pnet::datalink;
 
 
 #[derive(Parser)]
 #[command(version = "0.1")]
 #[command(name = "Feather-Redeemed")]
-#[command(about = "CLI tool to scan private subnets.", long_about = None)]
+#[command(about = "CLI tool to scan private internal subnets.", long_about = None)]
 
 struct Cli {
     #[arg(short, action, help = "A flag that will enable reverse dns lookup.")] 
     reverse_dns: bool,
     
-    #[arg(short = 's', action, default_value="A", default_missing_value="A", help = "Specify Subnet in CRIDER notation or A for all private subnets.")]
+    #[arg(short = 's', action, default_value="A", default_missing_value="A", help = "Specify Subnet in CIDR notation or A for all private subnets.")]
     subnets: String,
 
     //#[arg(short = 'p', long, num_args = 1.., value_delimiter = ',', default_value="80,443,445")]
     //ports: Vec<i32>,
     
-    #[arg(short = 'e', default_value="exclusions.txt", default_missing_value="exclusions.txt", help = "File of excluded hosts.")]
+    #[arg(short = 'e', default_value="exclusions.txt", default_missing_value="exclusions.txt", help = "File of excluded hosts and subnets. (10.0.0.1 or 10.1.1.0/24) \nIf no -e flag specified. exclusions.txt will be used.")]
     exclusions: String,
 
-    #[arg(short = 'w', long = "ping", help = "Enable pingsweeps on enumerated subents.")]
+    #[arg(short = 'w', long = "ping", help = "Enable pingsweeps. WARNING: VERY SLOW RIGHT NOW.")]
     pingsweeps: bool,
 
     //#[arg(short = 'u', long = "udp", help = "Enable UDP scanning over TCP.")]
@@ -45,22 +46,32 @@ const MAX_OCTET: i32 =255 ; //Set this to 255 when ready for the full program.
 #[tokio::main]
 async fn main() {
     let starttime = std::time::Instant::now();
-
     let cli = Cli::parse();
     let cidr_pattern = Regex::new(r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)($|/(8|16|24))?$").unwrap();
     let ip_pattern = Regex::new(r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$").unwrap();
+    let exclu_filename = cli.exclusions;
+    let mut working_dir = current_dir().expect("Getting Current Directory Errored.");
+    
+
 
     //==============Setting Up Exclusions========================//
     //Check for exclusions file. If it does not exists we exit! Need exclusions!
-    //TODO: Implement a Function to Parse the Exclude file and create a Hashmap of excluded IP addresses.
-    println!("Using exclude file {}.", cli.exclusions); //DEBUG
+    println!("Using exclude file {}.", exclu_filename); //DEBUGGING
     
     let mut subnet_exclusions_list: HashSet<String> = HashSet::new();
     let mut ip_exclusions_list: HashSet<String> = HashSet::new();
 
-    let path = cli.exclusions;
     
-    if let Ok(exclusions_lines) = read_lines(&path){
+    //Check and Make sure exclusions.txt or whatever specified file does exist.
+    working_dir.push(&exclu_filename);
+    let filepath = Path::new(working_dir.as_path());
+
+    if !filepath.exists(){
+        panic!("{} does not exist. Please create it before running this program. Path: {}", exclu_filename, filepath.display());
+    }
+   
+
+    if let Ok(exclusions_lines) = read_lines(&exclu_filename){
         for line in exclusions_lines.map_while(Result::ok) {
             if ip_pattern.is_match(&line) { // IF line is an IP address
                 ip_exclusions_list.insert(line);
@@ -83,22 +94,38 @@ async fn main() {
                 }
             }
             else {
-                panic!("Something is wrong with the formatting of {}: Faulty Line >{}<", path, line);
+                panic!("Something is wrong with the formatting of {}: Faulty Line >{}<", exclu_filename, line);
             }
         }
     }    
+    //ADD this devices ip address to the excluded hosts list
+    for iface in datalink::interfaces() {
+        if iface.is_up() && !iface.is_loopback(){
+            let comp_ip = iface.ips[0].ip();
+            println!("{}",comp_ip);
+            ip_exclusions_list.insert(comp_ip.to_string());
+        }
+    }
+
     //DEBUG
+    println!("\n====Excluding the Following Hosts and Subnets====");
+    println!("Hosts:");
     for item in &ip_exclusions_list {
         eprintln!("{}",item);
     }
+    println!("\nSubnets:");
     for item2 in &subnet_exclusions_list {
-        eprintln!("{}", item2);
+        eprintln!("{}/24", item2); //All skipped subnets will be a /24 as of right now. Maybe
+        //consier a subnet list for each one: /24 /16 /8.
     }
+    println!("\n\n");
+    
+
 
     //==============Evaluate What Subnets to Scan================//
     //Figure out what subnets we will scan.
     if cli.subnets == "A"{
-        eprintln!("Scanning All Priate Addresses");
+        eprintln!("Scanning All Private Addresses");
     }
     else { // CHECK if provided Subnet matches CIDR notation
         if cli.subnets.len()== 0{
