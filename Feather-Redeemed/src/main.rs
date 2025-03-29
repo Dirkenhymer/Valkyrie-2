@@ -2,7 +2,7 @@ use clap::{Parser};
 use dns_lookup::lookup_addr;
 use std::{time::Duration, fs::File, fs};
 use std::net::{IpAddr, TcpStream, SocketAddr};
-use std::collections::HashSet;
+use std::collections::{HashMap,HashSet};
 use std::path::Path;
 use std::io::{self, BufRead, BufWriter, Write};
 use std::env::current_dir;
@@ -37,11 +37,11 @@ struct Cli {
     //udp_enabled: bool,
 }
 
-type Db = Arc<Mutex<Vec<String>>>;
+type Db = Arc<Mutex<HashMap<String,String>>>;
 type Sbool = Arc<Mutex<bool>>;
 
 //GLOBAL VARIABLES
-const MAX_OCTET: i32 =10 ; //Set this to 255 when ready for the full program.
+const MAX_OCTET: i32 =255 ; //Set this to 255 when ready for the full program.
 
 #[tokio::main]
 async fn main() {
@@ -109,6 +109,21 @@ async fn main() {
                 panic!("Something is wrong with the formatting of {}: Faulty Line >{}<", exclu_filename, line);
             }
         }
+        //Dummy check if nothing was in the exclusions
+        if ip_exclusions_list.len() == 0 && subnet_exclusions_list.len() == 0 {
+            let mut input = String::new();
+            
+            println!("!!!-No Exclusions found in exclusions.txt before adding device intefaces.\nIf this is intentional type 'y' if not go check exclusions and type 'n'");
+            print!("Would you like to continue: ");
+            io::stdout().flush().unwrap(); //Have to flush to make the buffered write data actually output.
+
+            io::stdin().read_line(&mut input).expect("Failed to read line");
+            match input.trim() {
+                "y" => println!("Continuing On"),
+                "n" => panic!("Canceling. Go check exclusions and come back."),
+                _ => panic!("INVALID::Your response is not a mundane detail Michael!"),
+            }
+        }
     }    
     //ADD this devices ip address to the excluded hosts list
     for iface in datalink::interfaces() {
@@ -119,7 +134,7 @@ async fn main() {
     }
 
     //DEBUG
-    println!("\n====Excluding the Following Hosts and Subnets====");
+    println!("\n<<====Excluding the Following Hosts and Subnets====>>");
     println!("Hosts:");
     for item in &ip_exclusions_list {
         eprintln!("{}",item);
@@ -133,6 +148,7 @@ async fn main() {
     
 
     //Flag Check
+    println!("<<======Flag Check======>>");
     //DEBUGGING Say whether pingsweeps are enabled   
     if cli.pingsweeps {
         eprintln!("[x] Pingsweeps Enabled");
@@ -184,8 +200,8 @@ async fn main() {
 //RETURNS:
 async fn rdns_and_ping_full_private(en_portscan: bool, en_pingsweep: bool, mut sub_ex_list: HashSet<String>, mut ip_ex_list: HashSet<String>) {
     let mut subnets_with_hosts:Vec<String> = Vec::new();
-    let list_of_hosts = Arc::new(Mutex::new(vec![]));
-    let mut copy_ip_ex_list: HashSet<String>  = ip_ex_list.clone(); 
+    let list_of_hosts = Arc::new(Mutex::new(HashMap::new()));
+    let copy_ip_ex_list: HashSet<String>  = ip_ex_list.clone(); 
     let rdns_time = std::time::Instant::now();
     //======================= rDNS Sweeping 10.0.0.0/8 ==========================================//
     for second_octet in 0..=MAX_OCTET {
@@ -363,7 +379,7 @@ async fn rdns_and_ping_full_private(en_portscan: bool, en_pingsweep: bool, mut s
     };
     let mut sub_buff = BufWriter::new(subnet_results_file);
     for subnet in subnets_with_hosts.iter() {
-        sub_buff.write_all(format!("{}\n",subnet).as_bytes()).expect("Unable to write data");
+        sub_buff.write_all(format!("{}\n",subnet).as_bytes()).expect("Unable to write subnets to subents.txt");
     }
 
     //Write Gathered Data to ip_hostname.txt and up_ips.txt
@@ -388,9 +404,9 @@ async fn rdns_and_ping_full_private(en_portscan: bool, en_pingsweep: bool, mut s
     
     //Loop through vector of host and ips "ip,hostname" and add them to output files.
     let list_of_hosts_clone = list_of_hosts.clone();
-    for host in list_of_hosts_clone.lock().unwrap().iter() {
-        ip_host_buff.write_all(format!("{}\n",host).as_bytes()).expect("Unable to write data");
-        up_ip_buff.write_all(format!("{}\n",host.split(",").collect::<Vec<&str>>()[0]).as_bytes()).expect("Unable to write data");
+    for (ip, hostname) in list_of_hosts_clone.lock().unwrap().iter() {
+        ip_host_buff.write_all(format!("{},{}\n",ip,hostname).as_bytes()).expect("Unable to write ip,hostname to ip_hostname.txt");
+        up_ip_buff.write_all(format!("{}\n",ip).as_bytes()).expect("Unable to write ip to up_ips.txt");
     }
 }
 
@@ -409,7 +425,7 @@ async fn rdns_and_ping_ip(ip:IpAddr, host_list: Db, host_on_subnet: Sbool, pings
                 *host_on_subnet_value = true;
                 //Access the Mutex Protected Host list and Add the IP and hostname to it.
                 let mut list = host_list.lock().unwrap();
-                list.push(format!("{},{}",ip, "no_hostname"));
+                list.insert(format!("{}",ip), "no_hostname".to_string());
 
             } //No Ping and No RDNS so NO host.
         } ,
@@ -419,7 +435,7 @@ async fn rdns_and_ping_ip(ip:IpAddr, host_list: Db, host_on_subnet: Sbool, pings
             *host_on_subnet_value = true;
             //Access the Mutex Protected Host list and Add the IP and hostname to it.
             let mut list = host_list.lock().unwrap();
-            list.push(format!("{},{}",ip, hostname));
+            list.insert(format!("{}",ip), format!("{}",hostname));
         }
     }
 }
@@ -510,7 +526,12 @@ async fn subnet_portscan(subs_with_hosts: &Vec<String>, host_list: Db, mut ip_ex
                 445 => buff_445.write_all(format!("{}\n",result.1).as_bytes()).expect("Unable to write data"),
                 _ => println!("How in the BlAaAakE did we get here!"),
             }   
-        ////======TODO ADD ANY NEW HOSTS TO THE HOSTS LIST===============//
+            ////======TODO ADD ANY NEW HOSTS TO THE HOSTS LIST===============//
+            if !host_list.lock().unwrap().contains_key(&format!("{}",result.1)){
+                //Access the Mutex Protected Host list and Add the IP and hostname to it.
+                let mut list = host_list.lock().unwrap();
+                list.insert(format!("{}",result.1), "no_hostname".to_string());
+            }
         }
     }
 }
