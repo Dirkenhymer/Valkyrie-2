@@ -12,10 +12,25 @@ use std::sync::{Arc, Mutex};
 use pnet::datalink;
 
 
+//Bling it out.
+const BANNER: &str = "
+ _   _         _  _     ______                                                                  
+| | | |       | || |    | ___ \\                                                                 
+| | | |  __ _ | || | __ | |_/ /  ___ __   __  ___  _ __    __ _   ___   __ _  _ __    ___   ___ 
+| | | | / _` || || |/ / |    /  / _ \\\\ \\ / / / _ \\| '_ \\  / _` | / _ \\ / _` || '_ \\  / __| / _ \\
+\\ \\_/ /| (_| || ||   <  | |\\ \\ |  __/ \\ V / |  __/| | | || (_| ||  __/| (_| || | | || (__ |  __/
+ \\___/  \\__,_||_||_|\\_\\ \\_| \\_| \\___|  \\_/   \\___||_| |_| \\__, | \\___| \\__,_||_| |_| \\___| \\___|
+                                                           __/ |                                
+                                                          |___/                                 
+";
+const ABOUT_TEXT: &str= "CLI tool to scan private internal subnets. \nExample: valk2 -rp \nThis will scan all private addresses with rdns then portscan while using exclusions.txt ";
+
+
+
 #[derive(Parser)]
 #[command(version = "0.1")]
-#[command(name = "Feather-Redeemed")]
-#[command(about = "CLI tool to scan private internal subnets.", long_about = None)]
+#[command(name = "valk2")]
+#[command(about = format!("{}\n{}",BANNER,ABOUT_TEXT), long_about = None)]
 
 struct Cli {
     #[arg(short, action, help = "A flag that will enable reverse dns lookup.")] 
@@ -24,7 +39,7 @@ struct Cli {
     #[arg(short = 's', action, default_value="A", default_missing_value="A", help = "Specify Subnet in CIDR notation or A for all private subnets.")]
     subnets: String,
 
-    #[arg(short = 'p', help = "Using this flag enables portscanning of all addresses in subnets (a /24 address block) with hosts in them.")]
+    #[arg(short = 'p', help = "Using this flag enables portscanning of all addresses in subnets (a /24 address block) with hosts in them. Scans 80,443,445")]
     portscan: bool,
     
     #[arg(short = 'e', default_value="exclusions.txt", default_missing_value="exclusions.txt", help = "File of excluded hosts and subnets. (10.0.0.1 or 10.1.1.0/24) \nIf no -e flag specified. exclusions.txt will be used. \nWill auto exclude interfaces on the scanning computer.")]
@@ -52,17 +67,8 @@ async fn main() {
     let exclu_filename = cli.exclusions;
     let mut working_dir = current_dir().expect("Getting Current Directory Errored.");
     //PUT FANCY BANNER HERE LOL//
-    let banner ="
- _   _         _  _     ______                                                                  
-| | | |       | || |    | ___ \\                                                                 
-| | | |  __ _ | || | __ | |_/ /  ___ __   __  ___  _ __    __ _   ___   __ _  _ __    ___   ___ 
-| | | | / _` || || |/ / |    /  / _ \\\\ \\ / / / _ \\| '_ \\  / _` | / _ \\ / _` || '_ \\  / __| / _ \\
-\\ \\_/ /| (_| || ||   <  | |\\ \\ |  __/ \\ V / |  __/| | | || (_| ||  __/| (_| || | | || (__ |  __/
- \\___/  \\__,_||_||_|\\_\\ \\_| \\_| \\___|  \\_/   \\___||_| |_| \\__, | \\___| \\__,_||_| |_| \\___| \\___|
-                                                           __/ |                                
-                                                          |___/                                 
-";
-    println!("{}",banner);
+
+    println!("{}",BANNER);
     println!("Use the flag -h for help with flags and commands.");
 
 
@@ -73,6 +79,11 @@ async fn main() {
     let mut subnet_exclusions_list: HashSet<String> = HashSet::new();
     let mut ip_exclusions_list: HashSet<String> = HashSet::new();
 
+    //Create Output Folder
+    match fs::create_dir_all("output") {
+        Err(e) => panic!("Failed to Create Dir: {}", e),
+        Ok(_) => {},
+    }
     
     //Check and Make sure exclusions.txt or whatever specified file does exist.
     working_dir.push(&exclu_filename);
@@ -345,7 +356,7 @@ async fn rdns_and_ping_full_private(en_portscan: bool, en_pingsweep: bool, mut s
             *subnet_value = false;
         }
     }
-    eprintln!("The Subnet 192.162.0.0/16 took {} seconds to complete.", one92_slash_16_time.elapsed().as_secs());     
+    eprintln!("The Subnet 192.168.0.0/16 took {} seconds to complete.", one92_slash_16_time.elapsed().as_secs());     
     eprintln!("Total RDNS time took {} seconds to complete.", rdns_time.elapsed().as_secs());     
 
     //========================PORT SCANNING===========================//
@@ -364,11 +375,7 @@ async fn rdns_and_ping_full_private(en_portscan: bool, en_pingsweep: bool, mut s
 
     //========================Outputting Data=========================//
     //Write Data to Files
-    //Create Output Folder
-    match fs::create_dir_all("output") {
-        Err(e) => panic!("Failed to Create Dir: {}", e),
-        Ok(_) => {},
-    }
+
 
     //Write Gathered Data to Subnets.txt
     let subnet_results_file_path = Path::new("output/subnets.txt");
@@ -453,6 +460,7 @@ fn ping_host(host: IpAddr, timeout_milis: u64) -> bool {
         Err(_) => false,
     }
 }
+
 //DESCRIPTION:
 //TAKES:
 //RETURNS:
