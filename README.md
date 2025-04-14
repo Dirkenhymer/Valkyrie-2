@@ -10,3 +10,7 @@ Running from pre-compiled release binary
 wget https://github.com/Dirkenhymer/Feather-Redeemed/releases/download/v0.1.3-beta/valk2
 ```
 Give the binary executable permission and run!
+```
+chmod +x valk2
+./valk2 -h
+```
