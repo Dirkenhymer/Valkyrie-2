@@ -1,4 +1,4 @@
-# Feather-Redeemed
+# Valkyrie-2 REVENGEANCE
 Handy all in one tool to scan all private IP address spaces.
 
 Right now I am compiling this program and uploading it as a release binary. Feel free to compile it yourself though.
