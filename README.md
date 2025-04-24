@@ -7,7 +7,7 @@ Right now I am compiling this program and uploading it as a release binary. Feel
 
 Running from pre-compiled release binary
 ```
-wget https://github.com/Dirkenhymer/Feather-Redeemed/releases/download/v0.1.3-beta/valk2
+wget https://github.com/Dirkenhymer/Valkyrie-2/releases/download/v0.1.3-beta/valk2
 ```
 Give the binary executable permission and run!
 ```
