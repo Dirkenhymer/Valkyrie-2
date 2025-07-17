@@ -138,7 +138,7 @@ async fn main() {
     }    
     //ADD this devices ip address to the excluded hosts list
     for iface in datalink::interfaces() {
-        if iface.is_up() && !iface.is_loopback(){
+        if iface.is_up() && !iface.is_loopback() && iface.ips.len() > 0{
             let comp_ip = iface.ips[0].ip();
             ip_exclusions_list.insert(comp_ip.to_string());
         }
