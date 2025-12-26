@@ -17,9 +17,6 @@ chmod +x valk2
 
 ## Development
 ```
-cargo add ping-rs
-cargo add pnet
-cargo add regex
-cargo add dns_lookup
+cargo add ping-rs pnet regex dns-lookup
 cargo add tokio -F full
 ```
