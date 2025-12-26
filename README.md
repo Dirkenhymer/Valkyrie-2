@@ -14,3 +14,12 @@ Give the binary executable permission and run!
 chmod +x valk2
 ./valk2 -h
 ```
+
+## Development
+```
+cargo add ping-rs
+cargo add pnet
+cargo add regex
+cargo add dns_lookup
+cargo add tokio -F full
+```
